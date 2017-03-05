@@ -1,0 +1,10 @@
+mknod -m +rw /dev/switch0 c 249 0
+mknod -m +rw /dev/switch1 c 249 1
+mknod -m +rw /dev/switch2 c 249 2
+mknod -m +rw /dev/switch3 c 249 3
+mknod -m +rw /dev/switch4 c 249 4
+mknod -m +rw /dev/switch5 c 249 5
+mknod -m +rw /dev/switch6 c 249 6
+mknod -m +rw /dev/switch7 c 249 7
+mknod -m +rw /dev/switch8 c 249 8
+

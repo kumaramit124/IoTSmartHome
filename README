@@ -1,0 +1,40 @@
+################ First TIme build ##########################################
+
+for first time , it will build all library and create the ihome and server application 
+	$make build_all
+to clean all build library and application
+	$make clean_all
+
+########### Module build #############################################
+
+to build iot library
+	$make iotlib 
+to build xml library
+	$make xmllib 
+to build cloud library
+	$make cloudlib 
+to build ihome client application
+	$make client 
+to build server application  
+	$make server
+to build Uiapp application  
+	$make uiapp 
+to clean iot library
+	$make clean_iotlib
+to clean cloud library
+	$make clean_cloudlib 
+to clean xml library
+	$make clean_xmllib 
+to clean ihome client application
+	$make clean_client 
+to clean server application  
+	$make clean_server
+to clean uiapp application  
+	$make clean_uiapp
+
+############# Executing Application ######################################
+execute export library path , please check the library path.
+	source LibPathExport
+	./ihome
+	./simpleserver
+	./testUIapp
