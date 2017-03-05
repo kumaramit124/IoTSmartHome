@@ -1,0 +1,47 @@
+/*
+The final eecutable file is ihome and it will run as a daemon in linux. 
+
+*/
+
+cloud:
+It has the cloud connector and its api to get connected with cloud
+
+configmgr:
+this reads data from config file stored in /data/config.log and accordingly initialize the system  
+
+core:
+core is respthonsible for initialization of all the subsystem and start those services , it also stop all services
+
+databasemgr:
+it will intialize the table of database where it will populate the data, fetch the data and delete the data and factory reset.  
+
+halmgr:
+hal manager is the interface where it will have api to access the underlying hardware like leds, camera, audio and some other sensor.
+
+intelligencemgr:
+this has the main intelligence logic for smartly handle the resource that saves the energy  
+
+processmgr:
+this monitors the created process/threads  and whenever any process/threads fails it will start those process. 
+
+resourcemgr:
+this interface will maintain the resource information as well as it will also map it to different layout so that it will be 		presneted to UI.This will also get and set the resource values.  
+
+uimgr:
+This will provid the control and data path for ui application and this is the entry point for user UI.this is basically a socket server 
+that waits for all the client request and serves the request. data will be carried back and forth using xml.
+
+data:
+this will have the configuration data.one is default and other will the runing config.
+
+diagnostics:
+this will check for system connection status as well as it have have some test app.
+
+logger:
+this will provide an mechanism of system logger and also provide the api by which the log file is uploaded.
+
+start_stop.sh
+This script will start and stop the daemon.whenever daemon is crashed because of some issue this script will again start it.
+
+
+

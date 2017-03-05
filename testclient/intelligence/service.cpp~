@@ -1,0 +1,193 @@
+#include <stdio.h>
+#include <string>
+#include <map>
+#include <cstdlib>
+#include <pthread.h>
+#include <time.h>
+#include <stdlib.h>
+#include <mutex>
+#include <condition_variable>
+#include "OCPlatform.h"
+#include "OCApi.h"
+using namespace OC;
+#include "iot_api.h"
+#include "cloud_iot_common.h"
+#include "cloud_iot_api.h"
+#include "resource_xml.h"
+#include "UIManager.h"
+#include "resource_param.h"
+#include "resource_list.h"
+
+/* Please do not lock in this portion of code , anywhere here*/
+
+void *schedule_mytask(void *param)
+{
+  time_t start_time;
+  int old_state = -1;
+  int old_power = -1;
+  class ResourceParam *resparam = (ResourceParam*) param;
+  pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+  start_time = time(NULL);
+  while(resparam)
+  {
+    if((time(NULL) - start_time >=resparam->schedule_start_time) && (resparam->schedule_start_time))
+    {
+      if(resparam->resource_type == 0) // for output device
+      {
+        if((resparam->state != resparam->schedule_state) || (resparam->power != resparam->schedule_power))
+        {
+          old_state  = resparam->state;
+          old_power  = resparam->power;
+          resparam->state =  resparam->schedule_state;
+          resparam->power =  resparam->schedule_power;
+          std::cout<<"setting state to : "<<resparam->state<< " and power to: "<<resparam->power <<std::endl;
+          // set the value                  
+        }
+        else
+        {
+          if((time(NULL) - start_time >=resparam->schedule_end_time) && (resparam->schedule_end_time))
+          {
+            if((old_state != -1) && (old_power != -1)) 
+            {
+              resparam->state =  old_state;
+              resparam->power =  old_power;
+              std::cout<<"setting previous state to : "<<resparam->state<< " and previous power to: "<<resparam->power <<std::endl;
+              // set the value
+            }
+            if(resparam->is_repeat_next_day == 1)
+              start_time = time(NULL);
+            else
+            {
+              std::cout<<"coming out time over\n";
+              break;
+            }
+          }
+        }
+      }
+      else if(resparam->resource_type == 0) // for input device
+      {
+        if((time(NULL) - start_time >=resparam->schedule_end_time) && (resparam->schedule_end_time))
+        {
+          if(resparam->power >= resparam->threshold_power)
+          {
+            // generate the alaram for 30 seconds 
+          }
+        }
+        else
+        {
+          if(resparam->is_repeat_next_day == 1)
+            start_time = time(NULL);
+          else
+          {
+            std::cout<<"coming out time over\n";
+            break;
+          }
+        }
+      }
+    }
+  }
+  if(resparam)
+    resparam->is_schedule_task_running = false;
+  pthread_exit(NULL);
+  return NULL; 
+}
+
+void *StartService(void *param)
+{
+  pthread_t scheduler_id;
+  void *res;
+  class ResourceParam *resparam = (ResourceParam*) param;
+  pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+  while (resparam)
+  { 
+    //donot provide sleep in this thread , if want to lock it otherwise the other process will not be able to lock it.Hang condition
+    //std::lock_guard<std::mutex> lock(resparam->ResourceLock);
+    //scheduling the task to do some activity based on input provided by the user
+    if(resparam->schedule_staus == 1)
+    {
+      if(resparam->is_schedule_task_running == false)
+      {
+        if(!pthread_create(&scheduler_id, NULL, schedule_mytask,(void *)param))
+          resparam->is_schedule_task_running = true;
+      }  
+    }
+    else if(resparam->schedule_staus == 3) // cancel scheduling
+    {
+      if(!pthread_cancel(scheduler_id))
+      {
+        printf("schedular thread is cancelaed\n");
+        if(!pthread_join(resparam->service_thread, &res))
+        {
+          if (res == PTHREAD_CANCELED)
+          {
+            printf("schedular thread completely cancealed\n");
+          }
+        }          
+      }    
+      resparam->schedule_staus = 0; 
+      resparam->is_schedule_task_running = false; 
+    }
+    else
+      resparam->is_schedule_task_running = false;
+    //schedular end//////
+    sleep(2);
+  }
+  if(!pthread_cancel(scheduler_id))
+  {
+    printf("schedular thread is cancelaed\n");
+    if(!pthread_join(scheduler_id, &res))
+    {
+      if (res == PTHREAD_CANCELED)
+      {
+        printf("schedular thread completely cancealed\n");
+      }
+    }          
+  }    
+  if(resparam)
+  {
+    resparam->schedule_staus = 0; 
+    resparam->is_schedule_task_running = false;       
+  }
+  pthread_exit(NULL);
+  return NULL;
+}
+
+
+void start_service_thread()
+{
+  struct resource_list *pointer = get_resource_head();
+  while(pointer != NULL)
+  {
+    pthread_create(&pointer->resparam->service_thread, NULL, StartService,(void *)pointer->resparam);
+    pointer = pointer->next;
+  }
+}
+
+void stop_service_thread()
+{
+  void *res;
+  int  ret;
+  struct resource_list *pointer = get_resource_head();
+  while(pointer != NULL)
+  {
+    ret= pthread_cancel(pointer->resparam->service_thread);
+    if (ret != 0)
+      printf("service pthread_cancel error\n");
+    else
+    {
+      /* Join with thread to see what its exit status was */
+      ret = pthread_join(pointer->resparam->service_thread, &res);
+      if (ret != 0)
+        printf("service pthread_join error\n");
+      else
+      {
+        if (res == PTHREAD_CANCELED)
+        {
+          printf("service thread cancealed\n");
+        }
+      }  
+    }
+    pointer = pointer->next; 
+  }
+}
+

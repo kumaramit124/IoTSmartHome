@@ -1,0 +1,11 @@
+int config_read();
+extern int is_cloud_configured ;
+extern int is_iot_configured ;
+extern char cloud_userid[32];
+extern char cloud_password[32];
+extern int cloud_device_mac_addr[6];
+extern char cloud_url[256];
+extern char cloud_target[32];
+extern int cloud_vendorid;
+extern int uiapp_port;
+extern int broadcast_port;

@@ -1,0 +1,2 @@
+void start_service_thread();
+void stop_service_thread();

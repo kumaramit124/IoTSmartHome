@@ -1,0 +1,10 @@
+#ifdef __cplusplus
+extern "C"{
+#endif
+int cloud_init(void);
+int cloud_deinit(void);
+void registerIotCallback(int (*functptr)(int, int ,struct iot_resource *));
+int send_file_to_cloud(char const *buffer , char file_mode);
+#ifdef __cplusplus
+}
+#endif

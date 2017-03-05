@@ -1,0 +1,151 @@
+/*
+ * Copyright (c) 2013 Digi International Inc.,
+ * All rights not expressly granted are reserved.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this file,
+ * You can obtain one at http://mozilla.org/MPL/2.0/.
+ *
+ * Digi International Inc. 11001 Bren Road East, Minnetonka, MN 55343
+ * =======================================================================
+ */
+
+#include <pthread.h>
+#include "connector_api.h"
+#include "platform.h"
+extern int MessageReqRespInit(void);
+extern void cloud_config(int *cloud_device_mac_addr,int cloud_vendorid,char *cloud_url);
+
+static pthread_t connector_thread ;
+static pthread_t application_thread;
+
+static void * connector_run_thread(void * arg)
+{
+
+  APP_DEBUG("connector_run thread starts\n");
+  pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+  for (;;)
+  {
+    connector_status_t const status = connector_run(arg);
+
+    APP_DEBUG("connector_run returns %d\n", status);
+
+    if (status != connector_open_error) break;
+  }
+
+
+  APP_DEBUG("connector_run thread exits\n");
+
+  pthread_exit(arg);
+  return NULL;
+}
+
+static void * application_run_thread(void * arg)
+{
+  int status;
+
+  APP_DEBUG("application_run thread starts\n");
+  pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+  status = application_run(arg);
+
+  APP_DEBUG("application_run thread exits %d\n", status);
+
+  pthread_exit(arg);
+  return NULL;
+}
+
+//int main (void)
+int cloud_init (int *cloud_device_mac_addr,int cloud_vendorid,char *cloud_url)
+{
+  int ccode = -1;
+
+  connector_handle_t connector_handle;
+
+#if 1
+  printf("Started embedded app\n");
+#endif
+  APP_DEBUG("Start Cloud Connector for Embedded\n");
+
+  if(MessageReqRespInit()) // for error response handling
+    return -1;
+
+  cloud_config(cloud_device_mac_addr,cloud_vendorid,cloud_url); // added by lavi info
+
+  connector_handle = connector_init(app_connector_callback);
+
+  if (connector_handle != NULL)
+  {
+    ccode = pthread_create(&connector_thread, NULL, connector_run_thread, connector_handle);
+    if (ccode != 0)
+    {
+      APP_DEBUG("thread_create() error on connector_run_thread %d\n", ccode);
+      goto done;
+    }
+
+    ccode = pthread_create(&application_thread, NULL, application_run_thread, connector_handle);
+    if (ccode != 0)
+    {
+      APP_DEBUG("thread_create() error on application_run_thread %d\n", ccode);
+      goto done;
+    }
+
+#if 0 // not required now - commented by dhiraj
+    pthread_join(connector_thread, NULL);
+    pthread_join(application_thread, NULL);
+    APP_DEBUG("Cloud Connector terminated\n");
+#endif
+  }
+  else
+  {
+    APP_DEBUG("Unable to initialize the connector\n");
+  }
+done:
+  return ccode;
+}
+
+int cloud_deinit(void)
+{
+  int ret;
+  void *res;
+  APP_DEBUG("Cloud Connector terminating\n");
+  /*To be done - dhiraj-  need to handle case when segmenation fault in cloud code*/
+  ret = pthread_cancel(connector_thread);
+  if (ret != 0)
+    APP_DEBUG("pthread_cancel error\n");
+  else
+  {
+    /* Join with thread to see what its exit status was */
+    ret = pthread_join(connector_thread, &res);
+    if (ret != 0)
+      APP_DEBUG("pthread_join error\n");
+    else
+    {
+      if (res == PTHREAD_CANCELED)
+      {
+        APP_DEBUG("connector thread cancealed\n");
+      }
+    }  
+  }
+
+  ret = pthread_cancel(application_thread);
+  if (ret != 0)
+    APP_DEBUG("pthread_cancel error\n");
+  else
+  {
+    /* Join with thread to see what its exit status was */
+    ret = pthread_join(application_thread, &res);
+    if (ret != 0)
+      APP_DEBUG("pthread_join error\n");
+    else
+    {
+      if (res == PTHREAD_CANCELED)
+      {
+        APP_DEBUG("Application thread cancealed\n");
+      }
+    }
+  }  
+
+  APP_DEBUG("exiting from cloud\n");
+  return 0;
+}
+

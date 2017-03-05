@@ -1,0 +1,14 @@
+#define GET_RESOURSE_PARAM 0
+#define SET_RESOURSE_PARAM 1
+#define POST_RESOURSE_PARAM 2
+#define GET_RESOURSE_FILE 3
+
+struct iot_resource
+{
+   char Uri[64];
+   char host[64];
+   char name[32];
+   int  state;
+   int  power;  // fan,bulb,gyser temprature, ac temprature, fridge temprature
+};
+

@@ -1,0 +1,22 @@
+#include "OCPlatform.h"
+#include "OCApi.h"
+#include<stdio.h>
+#include <string>
+using namespace OC;
+int iot_start(void);
+int iot_stop(void);
+int send_unicast_request(char *ip_addr);
+int set_sensor(struct iot_resource *ior);
+int get_sensor(struct iot_resource *ior);
+int post_sensor(struct iot_resource *ior);
+void init_resource_file(void);
+int SetMode(struct iot_resource *ior);
+int SetScheduling(struct iot_resource *ior);
+
+
+
+
+
+
+
+

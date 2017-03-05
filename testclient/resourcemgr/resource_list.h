@@ -1,0 +1,11 @@
+bool insert(std::shared_ptr<OCResource> Resource, ResourceParam *resparam);
+struct resource_list *  find_by_ip(std::string hostAddress,std::string resourceURI);
+struct resource_list * find_by_host(std::string hostAddress,std::string resourceURI);
+bool delete_node(std::string hostAddress, std::string resourceURI);
+void print_to_file();
+void free_list();
+char *getipadr_from_hostaddr(char *hostaddress);
+struct resource_list *get_resource_head(void);
+
+
+

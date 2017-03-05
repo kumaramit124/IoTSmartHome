@@ -1,0 +1,357 @@
+/*
+ * Copyright (c) 2013 Digi International Inc.,
+ * All rights not expressly granted are reserved.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this file,
+ * You can obtain one at http://mozilla.org/MPL/2.0/.
+ *
+ * Digi International Inc. 11001 Bren Road East, Minnetonka, MN 55343
+ * =======================================================================
+ */
+
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
+#include <stdlib.h>
+#include "connector_api.h"
+#include "platform.h"
+
+extern int process_cloud_request(char *reqbuf, char *resbuf);
+extern int GetRespMessage(int *resp);
+extern int PostRespMessage(int *resp);
+
+/* supported target name */
+static char const device_request_target[] = "myTarget";
+char device_response_data[1024] = "My device response data";
+
+typedef enum {
+	device_request_response_status_ok,
+	device_request_response_status_unsupported_target
+} device_request_response_status_t;
+
+typedef struct device_request_handle {
+	char const * response_data;
+	char const * target;
+	size_t length_in_bytes;
+	device_request_response_status_t status;
+} device_request_handle_t;
+
+#define SEND_DATA_SIZE  64
+typedef struct
+{
+	char const * data_ptr;
+	size_t bytes;
+} client_data_t;
+
+connector_status_t app_send_put_request(connector_handle_t handle, char const *buffer, char file_mode)
+{
+	int resp;
+	connector_status_t status = connector_no_resource;
+	static connector_request_data_service_send_t header; /* Cloud Connector will hold this until we get a response/error callback */
+	static char const file_path[] = "device.txt";
+	static char const file_type[] = "text/plain";
+	//static char const *buffer[] = "Connector data service sample111\n";
+        
+	client_data_t * const app_data = malloc(sizeof *app_data);
+
+	if (app_data == NULL)
+		goto done;
+
+	app_data->data_ptr = buffer;
+	app_data->bytes = strlen(buffer);
+	header.transport = connector_transport_tcp;
+
+	switch(file_mode)
+	{
+		case 'w': //write
+			header.option = connector_data_service_send_option_overwrite; /**< overwrite the content if the path is already exists */
+			break;
+		case 'b': //backup
+			header.option = connector_data_service_send_option_archive;   /**< archive the data in given path */
+			break;
+		case 'a': //append
+			header.option = connector_data_service_send_option_append;    /**< append to existing file/path */
+			break;
+		case 't': // send directrly 
+			header.option = connector_data_service_send_option_transient;  /**< Device Cloud need not store the data but can send it to the consumer */
+			break;
+		default:
+			header.option = connector_data_service_send_option_append;
+			break;
+	}
+
+	header.path  = file_path;
+	header.content_type = file_type;
+	header.user_context = app_data; /* will be returned in all subsequent callbacks */
+       
+	status = connector_initiate_action(handle, connector_initiate_send_data, &header);
+	if (status == connector_init_error)
+	{
+		static int print_once = 1;
+
+		if (print_once)
+			print_once = 0;
+		else
+			goto error;
+	}
+
+	APP_DEBUG("Status: %d, file: %s\n", status, file_path);
+        if (status == connector_success)
+	{
+                if(GetRespMessage(&resp))
+		{       
+                      status = resp;
+		      APP_DEBUG("The return status is %d\n", resp);
+		}
+		goto done;
+	}
+error:
+	free(app_data);
+
+done:
+	return status;
+}
+
+static connector_callback_status_t app_process_device_request_target(connector_data_service_receive_target_t * const target_data)
+{
+	connector_callback_status_t status = connector_callback_continue;
+	device_request_handle_t * device_request = target_data->user_context;
+
+	APP_DEBUG("Device request data: target = \"%s\"\n", target_data->target);
+
+	if (target_data->user_context == NULL)
+	{
+
+		/* 1st chunk of device request so let's allocate memory for it
+		 * and setup user_context for the client_device_request.
+		 */
+		{
+			void * ptr;
+
+			ptr = malloc(sizeof *device_request);
+			if (ptr == NULL)
+			{
+				/* no memory so cancel this request */
+				APP_DEBUG("app_process_device_request: malloc fails for device request \"%s\" target\n", target_data->target);
+				status = connector_callback_error;
+				goto done;
+			}
+                        
+			device_request = ptr;
+			target_data->user_context = ptr;
+		}
+	}
+
+	/* check for supported target */
+	if (strcmp(target_data->target, device_request_target) != 0)
+	{
+		/* unsupported target so let's cancel it */
+		device_request->status = device_request_response_status_unsupported_target;
+		status = connector_callback_error;
+		printf("go the error\n");
+		goto done;
+	}
+	else
+	{
+		device_request->status = device_request_response_status_ok;
+		device_request->length_in_bytes = 0;
+		device_request->response_data = NULL;
+		device_request->target = device_request_target;
+	}
+
+done:
+        return status;
+}
+
+static connector_callback_status_t app_process_device_request_data(connector_data_service_receive_data_t * const receive_data)
+{
+	connector_callback_status_t status = connector_callback_continue;
+	device_request_handle_t * const device_request = receive_data->user_context;
+
+	ASSERT(device_request != NULL);
+	{
+                // this logic is commented as some garbage old data is coming from cloud
+		//char * device_request_data = (char *)receive_data->buffer;
+                char * device_request_data = (char *)malloc(receive_data->bytes_used+1);
+                memset(device_request_data,'\0',receive_data->bytes_used+1);
+                snprintf(device_request_data,receive_data->bytes_used+1,"%s",(char *)receive_data->buffer);
+                /* prints device request data */
+		APP_DEBUG("Device request data: received data = \"%.*s\" for %s\n", (int)receive_data->bytes_used,
+				device_request_data, device_request->target);
+                memset(device_response_data, 0, sizeof(device_response_data));
+		process_cloud_request(device_request_data, device_response_data);
+                free(device_request_data);
+                   
+	}
+
+	if (!receive_data->more_data)
+	{   
+
+		/* No more chunk */
+		/* setup response data for this target */
+		device_request->response_data = device_response_data;
+		device_request->length_in_bytes = strlen(device_request->response_data);
+	}
+
+
+	return status;
+}
+
+static connector_callback_status_t app_process_device_request_response(connector_data_service_receive_reply_data_t * const reply_data)
+{
+	connector_callback_status_t status = connector_callback_continue;
+
+	device_request_handle_t * const device_request = reply_data->user_context;
+	size_t bytes_used = 0;
+	char const * buffer = NULL;
+
+	if (device_request == NULL)
+	{
+		static char const no_memory_text[] = "No memory";
+
+		/* no memory from target process */
+		buffer = no_memory_text;
+		bytes_used = sizeof no_memory_text -1;
+	}
+	else
+	{
+		switch (device_request->status)
+		{
+			case device_request_response_status_unsupported_target:
+				{
+					static char const unsupported_target_text[] = "Target is not supported";
+
+					buffer = unsupported_target_text;
+					bytes_used = sizeof unsupported_target_text -1;
+					break;
+				}
+
+			case device_request_response_status_ok:
+				/* get number of bytes written to the client data buffer */
+				bytes_used = (reply_data->bytes_available < device_request->length_in_bytes) ? reply_data->bytes_available : device_request->length_in_bytes;
+				buffer = device_request->response_data;
+
+				device_request->response_data += bytes_used;
+				device_request->length_in_bytes -= bytes_used;
+
+				if (device_request->length_in_bytes > 0) reply_data->more_data = connector_true;
+				break;
+		}
+	}
+
+	if (buffer != NULL)
+	{
+		APP_DEBUG("Device response data: send response data = %.*s\n", (int)bytes_used, buffer);
+
+		ASSERT(reply_data->bytes_available >= bytes_used);
+
+		/* let's copy the response data to service_response buffer */
+		memcpy(reply_data->buffer, buffer, bytes_used);
+		reply_data->bytes_used = bytes_used;
+
+	}
+
+	return status;
+}
+
+static connector_callback_status_t app_process_device_request_status(connector_data_service_status_t const * const status_data)
+{
+	connector_callback_status_t status = connector_callback_continue;
+
+	device_request_handle_t * const device_request = status_data->user_context;
+
+	if (device_request != NULL)
+	{
+
+		switch (status_data->status)
+		{
+			case connector_data_service_status_complete:
+				APP_DEBUG("app_process_device_request_status: handle %p session completed\n",
+						(void *) device_request);
+				break;
+			case connector_data_service_status_session_error:
+				APP_DEBUG("app_process_device_request_status: handle %p session error %d\n",
+						(void *) device_request, status_data->session_error);
+				break;
+			default:
+				APP_DEBUG("app_process_device_request_status: handle %p session error %d\n",
+						(void *)device_request, status_data->status);
+				break;
+		}
+
+		free(device_request);
+	}
+
+	return status;
+}
+
+connector_callback_status_t app_data_service_handler(connector_request_id_data_service_t const request_id,
+		void * const data)
+{
+	connector_callback_status_t status = connector_callback_continue;
+
+	switch (request_id)
+	{
+		case connector_request_id_data_service_receive_target:
+			status = app_process_device_request_target(data);
+			break;
+		case connector_request_id_data_service_receive_data:
+			status = app_process_device_request_data(data);
+			break;
+		case connector_request_id_data_service_receive_status:
+			status = app_process_device_request_status(data);
+			break;
+		case connector_request_id_data_service_receive_reply_data:
+			status = app_process_device_request_response(data);
+			break;
+
+		case connector_request_id_data_service_send_data:
+			{
+				connector_data_service_send_data_t * send_ptr = data;
+				client_data_t * const app_data = send_ptr->user_context;
+
+				ASSERT(app_data != NULL);
+				send_ptr->bytes_used = (send_ptr->bytes_available > app_data->bytes) ? app_data->bytes : send_ptr->bytes_available;
+
+				memcpy(send_ptr->buffer, app_data->data_ptr, send_ptr->bytes_used);
+				app_data->data_ptr += send_ptr->bytes_used;
+				app_data->bytes -= send_ptr->bytes_used;
+				send_ptr->more_data = (app_data->bytes > 0) ? connector_true : connector_false;
+
+				break;
+			}
+
+		case connector_request_id_data_service_send_response:
+			{
+				connector_data_service_send_response_t * const resp_ptr = data;
+
+				APP_DEBUG("Received %s response from Device Cloud\n", (resp_ptr->response == connector_data_service_send_response_success) ? "success" : "error");
+				if (resp_ptr->hint != NULL)
+				{
+					APP_DEBUG("Device Cloud response %s\n", resp_ptr->hint);
+				}
+
+				break;
+			}
+
+		case connector_request_id_data_service_send_status:
+			{
+				connector_data_service_status_t * const error_ptr = data;
+				client_data_t * const app_data = error_ptr->user_context;
+				APP_DEBUG("Data service error: %d\n", error_ptr->status);
+				free(app_data);
+				PostRespMessage((int *)&error_ptr->status);
+				break;
+			}
+
+		case connector_request_id_data_service_receive_reply_length:
+		default:
+			APP_DEBUG("app_data_service_handler: unknown request id type %d for connector_request_id_data_service\n", request_id);
+			break;
+	}
+
+	return status;
+}
+
